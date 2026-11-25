@@ -1,0 +1,201 @@
+# ==============================================================================
+# PRINCIPIA Ω-CELL-C1-P1B2B-B3 G56 — I1 External Independent Linux Replay (R0)
+# Destination in Approved GitHub Repo (ONLY AFTER T20 + Human L4 Authorization):
+#   .github/workflows/principia_p1b2b_b3_g56_i1_external_replay_r0.yml
+#
+# Enforces:
+#   - Pinned `ubuntu-latest` (`Linux x86-64`), `Python 3.12`, `leanprover/lean4:v4.33.1`.
+#   - Zero multi-line inline Python heredocs; deterministic `EVIDENCE_DIR` initialized
+#     before preflight so early failures always upload full logs & receipt.
+#   - Strict Workflow Byte Identity Gate: snapshots actual executed workflow `.yml`
+#     and hard-fails (`VERIFY_FAILED__WORKFLOW_BYTE_MISMATCH`) if its SHA-256 differs
+#     from `GitHub_Actions_Workflow/principia_p1b2b_b3_g56_i1_external_replay_r0.yml`
+#     inside the unpacked `I1` bundle!
+#   - Verifies pinned `H_S` (62 active sources = 50 across 6 frozen ancestors + 12 B3 I0),
+#     `H_E` (Environment & CanSem Spec), and pre-run/post-run `H_O` (71-case oracle).
+#   - Executes Double Clean Replay (`R1` & `R2`) from zero cache in separate temp roots
+#     with `CanSem(R1) == CanSem(R2)` + `6/6` isolated fault calibration (`CAL-B3-I1-01..06`).
+#   - Read-only (`permissions: contents: read`); zero governance or runtime authority.
+# ==============================================================================
+
+name: "PRINCIPIA P1B2B-B3 G56 I1 External Independent Replay R0"
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_zip_path:
+        description: "Relative path in repository to unmodified B3 G56 I1 External Verification ZIP"
+        required: true
+        default: "PRINCIPIA_OMEGA_CELL_C1_P1B2B_B3_G56_I1_EXTERNAL_VERIFICATION_PACKAGE_R0.zip"
+        type: string
+      expected_bundle_zip_sha256:
+        description: "Optional expected SHA-256 of outer I1 Bundle ZIP (verified if non-empty)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  WORK_SUBDIR: "principia_p1b2b_b3_g56_i1_ext_replay"
+  PINNED_LEAN_TOOLCHAIN: "leanprover/lean4:v4.33.1"
+  EXPECTED_H_S_SHA256: "6E9CEEFFBBD400AB052A7F76DA7BFD1F35EEBD07AF1AF939FB09728AB4BD01DE"
+  EXPECTED_H_E_SHA256: "6E4781190E1430C059513AEFB1B6CBE7955EC84A26988ECEA87E69F4A221E270"
+  EXPECTED_H_O_SHA256: "33B7679D90435EE70B6257D1FF344977ECCAD55A5311BB9A846D6CE103E00956"
+
+jobs:
+  external_independent_replay_p1b2b_b3_g56_i1:
+    name: "Detached Linux Double Clean Replay (Lean 4.33.1 · 6 Ancestors + B3 I0 + KitB3I1)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: "1. Checkout Repository (Read-Only)"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "2. Provision Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "3. Initialize Evidence Dir & Snapshot Actual Executed Workflow File"
+        id: init_ev
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORK_ROOT="${RUNNER_TEMP}/${WORK_SUBDIR}"
+          EVIDENCE_DIR="${WORK_ROOT}/ExternalReplayEvidenceOut"
+          UNPACK_DIR="${WORK_ROOT}/BundleUnpacked"
+          rm -rf "${WORK_ROOT}"
+          mkdir -p "${EVIDENCE_DIR}" "${UNPACK_DIR}"
+          echo "work_root=${WORK_ROOT}" >> "${GITHUB_OUTPUT}"
+          echo "evidence_dir=${EVIDENCE_DIR}" >> "${GITHUB_OUTPUT}"
+          echo "unpack_dir=${UNPACK_DIR}" >> "${GITHUB_OUTPUT}"
+          IMMUT_LOG="${EVIDENCE_DIR}/pre_and_post_immutability_check.txt"
+          echo "=== [STEP 3] EXECUTED WORKFLOW SNAPSHOT & EVIDENCE INITIALIZATION ===" > "${IMMUT_LOG}"
+          echo "UTC Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${IMMUT_LOG}"
+          echo "Runner OS/Arch: $(uname -s -m -r)" >> "${IMMUT_LOG}"
+          WF_CANDIDATE="${GITHUB_WORKSPACE}/.github/workflows/principia_p1b2b_b3_g56_i1_external_replay_r0.yml"
+          if [[ ! -f "${WF_CANDIDATE}" ]]; then
+            WF_REL="$(echo "${GITHUB_WORKFLOW_REF:-}" | sed -E 's#^[^/]+/[^/]+/##; s#@.*$##')"
+            if [[ -n "${WF_REL}" ]] && [[ -f "${GITHUB_WORKSPACE}/${WF_REL}" ]]; then
+              WF_CANDIDATE="${GITHUB_WORKSPACE}/${WF_REL}"
+            fi
+          fi
+          if [[ ! -f "${WF_CANDIDATE}" ]]; then
+            echo "ERROR: Executed workflow file not found!" | tee -a "${IMMUT_LOG}"
+            exit 2
+          fi
+          cp -p "${WF_CANDIDATE}" "${EVIDENCE_DIR}/executed_workflow_snapshot.yml"
+          EXEC_WF_BYTES="$(stat -c%s "${EVIDENCE_DIR}/executed_workflow_snapshot.yml")"
+          EXEC_WF_SHA="$(sha256sum "${EVIDENCE_DIR}/executed_workflow_snapshot.yml" | awk '{print toupper($1)}')"
+          echo "Executed Workflow Bytes : ${EXEC_WF_BYTES}" | tee -a "${IMMUT_LOG}"
+          echo "Executed Workflow SHA256: ${EXEC_WF_SHA}" | tee -a "${IMMUT_LOG}"
+          echo "exec_wf_bytes=${EXEC_WF_BYTES}" >> "${GITHUB_OUTPUT}"
+          echo "exec_wf_sha=${EXEC_WF_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: "4. Unpack Bundle, Enforce Workflow Byte Gate & Verify Pinned H_S / H_E / H_O"
+        id: preflight
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ steps.init_ev.outputs.evidence_dir }}
+          UNPACK_DIR: ${{ steps.init_ev.outputs.unpack_dir }}
+          EXEC_WF_BYTES: ${{ steps.init_ev.outputs.exec_wf_bytes }}
+          EXEC_WF_SHA: ${{ steps.init_ev.outputs.exec_wf_sha }}
+          INPUT_BUNDLE_REL: ${{ inputs.bundle_zip_path }}
+          INPUT_BUNDLE_SHA: ${{ inputs.expected_bundle_zip_sha256 }}
+        run: |
+          set -euo pipefail
+          IMMUT_LOG="${EVIDENCE_DIR}/pre_and_post_immutability_check.txt"
+          BUNDLE_FILE="${GITHUB_WORKSPACE}/${INPUT_BUNDLE_REL}"
+          if [[ ! -f "${BUNDLE_FILE}" ]]; then
+            echo "ERROR: Bundle ZIP not found at ${BUNDLE_FILE}" | tee -a "${IMMUT_LOG}"
+            exit 2
+          fi
+          ACTUAL_ZIP_BYTES="$(stat -c%s "${BUNDLE_FILE}")"
+          ACTUAL_ZIP_SHA="$(sha256sum "${BUNDLE_FILE}" | awk '{print toupper($1)}')"
+          echo "Bundle ZIP Bytes : ${ACTUAL_ZIP_BYTES}" | tee -a "${IMMUT_LOG}"
+          echo "Bundle ZIP SHA256: ${ACTUAL_ZIP_SHA}" | tee -a "${IMMUT_LOG}"
+          TARGET_SHA="$(echo "${INPUT_BUNDLE_SHA}" | tr '[:lower:]' '[:upper:]' | tr -d '[:space:]')"
+          if [[ -n "${TARGET_SHA}" ]] && [[ "${ACTUAL_ZIP_SHA}" != "${TARGET_SHA}" ]]; then
+            echo "FAIL: Outer Bundle ZIP SHA-256 mismatch!" | tee -a "${IMMUT_LOG}"
+            exit 1
+          fi
+          unzip -q "${BUNDLE_FILE}" -d "${UNPACK_DIR}"
+          (cd "${UNPACK_DIR}" && sha256sum -c bundle_manifest.sha256) >> "${IMMUT_LOG}"
+          BUNDLED_WF="${UNPACK_DIR}/GitHub_Actions_Workflow/principia_p1b2b_b3_g56_i1_external_replay_r0.yml"
+          BUNDLED_WF_SHA="$(sha256sum "${BUNDLED_WF}" | awk '{print toupper($1)}')"
+          echo "Bundled Workflow SHA256 : ${BUNDLED_WF_SHA}" | tee -a "${IMMUT_LOG}"
+          echo "bundled_wf_sha=${BUNDLED_WF_SHA}" >> "${GITHUB_OUTPUT}"
+          if [[ "${EXEC_WF_SHA}" != "${BUNDLED_WF_SHA}" ]]; then
+            echo "CRITICAL FAIL: VERIFY_FAILED__WORKFLOW_BYTE_MISMATCH" | tee -a "${IMMUT_LOG}"
+            exit 1
+          fi
+          ACTUAL_H_S="$(sha256sum "${UNPACK_DIR}/i1_verify_kit_r0/manifest_active_replay_62_sources.json" | awk '{print toupper($1)}')"
+          ACTUAL_H_E="$(sha256sum "${UNPACK_DIR}/i1_verify_kit_r0/i1_environment_and_cansem_spec.json" | awk '{print toupper($1)}')"
+          ACTUAL_H_O="$(sha256sum "${UNPACK_DIR}/i1_verify_kit_r0/i1_precommitted_oracle_71.json" | awk '{print toupper($1)}')"
+          echo "Verified H_S: ${ACTUAL_H_S}" | tee -a "${IMMUT_LOG}"
+          echo "Verified H_E: ${ACTUAL_H_E}" | tee -a "${IMMUT_LOG}"
+          echo "Verified H_O: ${ACTUAL_H_O}" | tee -a "${IMMUT_LOG}"
+          test "${ACTUAL_H_S}" = "${EXPECTED_H_S_SHA256}"
+          test "${ACTUAL_H_E}" = "${EXPECTED_H_E_SHA256}"
+          test "${ACTUAL_H_O}" = "${EXPECTED_H_O_SHA256}"
+
+      - name: "5. Install Pinned Lean 4.33.1 via elan"
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ steps.init_ev.outputs.evidence_dir }}
+        run: |
+          set -euo pipefail
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain "${PINNED_LEAN_TOOLCHAIN}"
+          export PATH="${HOME}/.elan/bin:${PATH}"
+          lean --version | tee "${EVIDENCE_DIR}/lean_toolchain_version.txt"
+          lake --version >> "${EVIDENCE_DIR}/lean_toolchain_version.txt"
+
+      - name: "6. Execute Detached Double Clean Replay (R1 & R2) + 6-Fault Calibration"
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ steps.init_ev.outputs.evidence_dir }}
+          UNPACK_DIR: ${{ steps.init_ev.outputs.unpack_dir }}
+          EXEC_WF_BYTES: ${{ steps.init_ev.outputs.exec_wf_bytes }}
+          EXEC_WF_SHA: ${{ steps.init_ev.outputs.exec_wf_sha }}
+          BUNDLED_WF_SHA: ${{ steps.preflight.outputs.bundled_wf_sha }}
+        run: |
+          set -euo pipefail
+          export PATH="${HOME}/.elan/bin:${PATH}"
+          python3 -B "${UNPACK_DIR}/i1_verify_kit_r0/run_verify_b3_i1.py" \
+            --source-root "${UNPACK_DIR}" \
+            --execution-context EXTERNAL_CI_REPRODUCED \
+            --executed-workflow-sha256 "${EXEC_WF_SHA}" \
+            --executed-workflow-bytes "${EXEC_WF_BYTES}" \
+            --bundled-workflow-sha256 "${BUNDLED_WF_SHA}" \
+            --evidence-dir "${EVIDENCE_DIR}" \
+            --receipt-out "${EVIDENCE_DIR}/external_b3_g56_i1_replay_receipt.json" \
+            --with-calibration
+
+      - name: "7. Post-Replay Bundle Immutability Verification & Evidence Manifest"
+        if: always()
+        shell: bash
+        env:
+          EVIDENCE_DIR: ${{ steps.init_ev.outputs.evidence_dir }}
+          UNPACK_DIR: ${{ steps.init_ev.outputs.unpack_dir }}
+        run: |
+          set -euo pipefail
+          IMMUT_LOG="${EVIDENCE_DIR}/pre_and_post_immutability_check.txt"
+          if [[ -f "${UNPACK_DIR}/bundle_manifest.sha256" ]]; then
+            echo "=== [POST-RUN] UNPACKED BUNDLE IMMUTABILITY RE-CHECK ===" >> "${IMMUT_LOG}"
+            (cd "${UNPACK_DIR}" && sha256sum -c bundle_manifest.sha256) >> "${IMMUT_LOG}"
+          fi
+          (cd "${EVIDENCE_DIR}" && find . -maxdepth 1 -type f ! -name 'artifact_bundle_manifest.sha256' -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > artifact_bundle_manifest.sha256)
+
+      - name: "8. Upload External Replay Evidence Bundle"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: principia-p1b2b-b3-g56-i1-external-replay-evidence-r0
+          path: ${{ steps.init_ev.outputs.evidence_dir }}/*
+          if-no-files-found: error
+          retention-days: 90
